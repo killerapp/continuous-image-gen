@@ -159,6 +159,16 @@ def generate(
                         else:
                             generated_prompt = await prompt_gen.generate_prompt()
                         progress.remove_task(prompt_task)
+                        
+                        # Display thinking process
+                        if prompt_gen.thinking_process:
+                            console.print(Panel(
+                                "\n".join([f"[dim]Thought: {think_step}[/dim]" for think_step in prompt_gen.thinking_process]),
+                                title="[cyan]Reasoning Process[/cyan]",
+                                border_style="cyan",
+                                title_align="left"
+                            ))
+                        
                         console.print(Panel(
                             f"[bold]Generated prompt:[/bold]\n\n{generated_prompt}",
                             title="AI Prompt",
@@ -174,16 +184,19 @@ def generate(
                     progress.remove_task(image_task)
                     
                     # Show success message with details
-                    console.print(Panel(
-                        f"[bold green]Image generated successfully![/bold green]\n\n"
-                        f"📁 Saved to: {output_path}\n"
-                        f"📝 Prompt saved to: {output_path.with_suffix('.txt')}\n\n"
-                        f"[dim]Model: {model_name}\n"
-                        f"Time: {gen_time:.1f}s\n"
-                        f"Prompt: {generated_prompt}[/dim]",
-                        title="Success",
-                        border_style="green"
-                    ))
+                    console.print(
+                        Panel(
+                            f"[bold green]Image generated successfully![/bold green]\n\n"
+                            f"📁 Saved to: {output_path}\n"
+                            f"📝 Prompt saved to: {output_path.with_suffix('.txt')}\n\n"
+                            f"[dim]Ollama: {prompt_gen.model_name} (temp {app.state.config.model.ollama_temperature})"
+                            f" | Flux: {model_name}\n"
+                            f"Time: {gen_time:.1f}s\n"
+                            f"Prompt: {generated_prompt}[/dim]",
+                            title="Success",
+                            border_style="green"
+                        )
+                    )
                     
                     # End metrics collection
                     metrics.end_batch()
@@ -327,6 +340,16 @@ def loop(
                         try:
                             # Generate prompt
                             prompt = await prompt_gen.generate_prompt()
+
+                            # Display thinking process
+                            if hasattr(prompt_gen, 'thinking_process') and prompt_gen.thinking_process:
+                                console.print(Panel(
+                                    "\n".join([f"[dim]Thought: {think_step}[/dim]" for think_step in prompt_gen.thinking_process]),
+                                    title="[cyan]Reasoning Process[/cyan]",
+                                    border_style="cyan",
+                                    title_align="left" 
+                                ))
+                            
                             console.print(Panel(
                                 f"[bold]Generated prompt for image {i+1}:[/bold]\n\n{prompt}",
                                 title=f"Prompt {i+1}/{batch_size}",

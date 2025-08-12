@@ -30,6 +30,12 @@ class PromptGenerator:
         ]
         self.conversation_history = []
         self.logger = logging.getLogger(__name__)
+        self.thinking_process = []  # Initialize thinking_process
+        self.logger.info(
+            "Initialized PromptGenerator with Ollama model '%s' (temperature=%.2f)",
+            self.model_name,
+            self.config.model.ollama_temperature,
+        )
         
     @handle_errors(error_type=PromptError, retries=2)
     async def generate_prompt(self) -> str:
@@ -114,22 +120,69 @@ class PromptGenerator:
                     "content": "\n".join(user_message_parts)
                 }]
             
-            # Generate prompt with logging
-            self.logger.info("Generating prompt with Ollama...")
-            response = ollama.chat(
-                model=self.model_name,
-                messages=self.conversation_history,
-                options={"temperature": self.config.model.ollama_temperature}
+            # Log model details
+            self.logger.info(
+                "Generating prompt with Ollama model '%s' (temperature=%.2f)",
+                self.model_name,
+                self.config.model.ollama_temperature,
             )
             
+            response_stream = ollama.chat(
+                model=self.model_name,
+                messages=self.conversation_history,
+                options={"temperature": self.config.model.ollama_temperature},
+                stream=True  # Ensure streaming is enabled
+            )
+
+            full_response_content = ""
+            self.thinking_process = [] # Initialize a list to store think tags
+            current_think_content = ""
+            in_think_tag = False
+
+            for chunk in response_stream:
+                self.logger.debug(f"Raw Ollama stream chunk: {chunk}") # Log each raw chunk
+                if 'message' in chunk and 'content' in chunk['message']:
+                    content_piece = chunk['message']['content']
+                    
+                    while '<think>' in content_piece or '</think>' in content_piece or in_think_tag:
+                        if not in_think_tag:
+                            think_start_index = content_piece.find('<think>')
+                            if think_start_index != -1:
+                                full_response_content += content_piece[:think_start_index]
+                                content_piece = content_piece[think_start_index + len('<think>'):]
+                                in_think_tag = True
+                            else: # No <think> tag, but maybe a closing one from previous chunk or no tags
+                                break 
+                        
+                        if in_think_tag:
+                            think_end_index = content_piece.find('</think>')
+                            if think_end_index != -1:
+                                current_think_content += content_piece[:think_end_index]
+                                self.thinking_process.append(current_think_content)
+                                self.logger.info(f"Think content: {current_think_content}") # Log think content
+                                current_think_content = "" # Reset for next think block
+                                content_piece = content_piece[think_end_index + len('</think>'):]
+                                in_think_tag = False
+                            else:
+                                current_think_content += content_piece
+                                content_piece = "" 
+                                break 
+
+                    if not in_think_tag and content_piece:
+                        full_response_content += content_piece
+            
             # Process and log the generated prompt
-            new_prompt = response.message.content.strip()
+            new_prompt = full_response_content.strip()
             self.logger.info(f"Raw generated prompt: {new_prompt}")
             
             # Add new prompt to conversation history
+            # Storing the full response with think tags for context,
+            # but the actual prompt used will be the cleaned one.
+            # Or, store the cleaned prompt if that's preferred for history.
+            # For now, let's store the cleaned prompt in history.
             self.conversation_history.append({
                 "role": "assistant",
-                "content": new_prompt
+                "content": new_prompt # Storing cleaned prompt
             })
             # Create next user message
             next_message = "Generate another unique prompt, different from previous ones."
@@ -158,6 +211,15 @@ class PromptGenerator:
         """Interactive prompt generation with user feedback."""
         while True:
             prompt = await self.generate_prompt()
+
+            # Display thinking process
+            if hasattr(self, 'thinking_process') and self.thinking_process:
+                print("\n[Reasoning Process]")
+                print("-" * 80)
+                for think_step in self.thinking_process:
+                    print(f"Thought: {think_step}")
+                print("-" * 80)
+
             print("\nGenerated prompt:")
             print("-" * 80)
             print(prompt)

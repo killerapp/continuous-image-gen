@@ -5,6 +5,16 @@ import re
 import torch
 from typing import Union, List, Tuple
 
+
+def check_prompt_length(tokenizer, prompt: str) -> bool:
+    """Return True if the prompt exceeds the tokenizer's max length."""
+    tokens = tokenizer(prompt)
+    if hasattr(tokens, "input_ids"):
+        length = tokens.input_ids.shape[1]
+    else:
+        length = len(tokens["input_ids"])
+    return length > getattr(tokenizer, "model_max_length", length)
+
 def split_prompt(prompt: str, chunk_size: int = 77) -> List[str]:
     """Split a long prompt into semantically meaningful chunks.
     
@@ -89,5 +99,25 @@ def get_flux_embeddings(
     
     with torch.no_grad():
         t5_embeddings = pipe.text_encoder_2(**text_inputs_2)[0]
-    
+
     return clip_embeddings, t5_embeddings
+
+
+def get_pipeline_embeds(pipe, prompt: str, negative_prompt: str, device: str = "cuda") -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Generate prompt and negative prompt embeddings using the pipeline."""
+
+    def encode(text: str) -> Tuple[torch.Tensor, torch.Tensor]:
+        tokens = pipe.tokenizer(
+            text,
+            padding="max_length",
+            max_length=getattr(pipe.tokenizer, "model_max_length", 77),
+            truncation=True,
+        )
+        input_ids = tokens.input_ids.to(device)
+        hidden, pooled = pipe.text_encoder(input_ids)
+        return hidden, pooled
+
+    prompt_embeds, pooled_prompt = encode(prompt)
+    neg_embeds, pooled_neg = encode(negative_prompt)
+
+    return prompt_embeds, neg_embeds, pooled_prompt, pooled_neg

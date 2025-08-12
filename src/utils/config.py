@@ -20,9 +20,13 @@ class ModelConfig:
     """Model-specific configuration."""
     ollama_model: str = "phi4:latest"
     ollama_temperature: float = 0.7
-    flux_model: str = "dev"
+    flux_model_path: str = "dev"
     max_sequence_length: int = 512
     lora: LoraConfig = field(default_factory=LoraConfig)
+
+    @property
+    def flux_model(self) -> str:
+        return self.flux_model_path
 
 @dataclass
 class ImageConfig:
@@ -36,19 +40,20 @@ class ImageConfig:
 @dataclass
 class PluginConfig:
     """Plugin-related configuration."""
-    enabled_plugins: List[str] = field(default_factory=lambda: [
+    enabled: List[str] = field(default_factory=lambda: [
         "time_of_day",
         "nearest_holiday",
         "holiday_fact",
         "art_style",
-        "lora"
+        "lora",
     ])
+    descriptions: Dict[str, str] = field(default_factory=dict)
     plugin_order: Dict[str, int] = field(default_factory=lambda: {
         "time_of_day": 1,
         "nearest_holiday": 2,
         "holiday_fact": 3,
         "art_style": 4,
-        "lora": 5
+        "lora": 5,
     })
 
 @dataclass
@@ -57,38 +62,104 @@ class SystemConfig:
     output_dir: Path = Path("output")
     log_dir: Path = Path("logs")
     cache_dir: Path = Path(".cache")
+    image_output_dir: Path = Path("output")
     cpu_only: bool = False
     mps_use_fp16: bool = False
 
+
+@dataclass
+class LoggingConfig:
+    """Logging-related configuration."""
+    level: str = "INFO"
+
+
+@dataclass
+class TemporalContextConfig:
+    """Configuration for temporal context generation."""
+    enabled: bool = False
+    use_day_of_week: bool = False
+    use_time_of_day: bool = False
+    use_holidays: bool = False
+
 class Config:
-    def __init__(self):
-        self.plugins = PluginConfig()
-        self.model = ModelConfig(
+    def __init__(
+        self,
+        model: Optional[ModelConfig] = None,
+        image: Optional[ImageConfig] = None,
+        system: Optional[SystemConfig] = None,
+        logging: Optional[LoggingConfig] = None,
+        temporal_context: Optional[TemporalContextConfig] = None,
+        plugins: Optional[PluginConfig] = None,
+    ):
+        self.plugins = plugins or PluginConfig()
+
+        self.model = model or ModelConfig(
             lora=LoraConfig(
-                lora_dir=Path(os.getenv('LORA_DIR', LoraConfig.lora_dir)),
-                enabled_loras=os.getenv('ENABLED_LORAS', '').split(',') if os.getenv('ENABLED_LORAS') else [],
-                application_probability=float(os.getenv('LORA_APPLICATION_PROBABILITY', LoraConfig.application_probability))
+                lora_dir=Path(os.getenv("LORA_DIR", LoraConfig.lora_dir)),
+                enabled_loras=os.getenv("ENABLED_LORAS", "").split(",") if os.getenv("ENABLED_LORAS") else [],
+                application_probability=float(
+                    os.getenv(
+                        "LORA_APPLICATION_PROBABILITY",
+                        LoraConfig.application_probability,
+                    )
+                ),
             ),
-            ollama_model=os.getenv('OLLAMA_MODEL', ModelConfig.ollama_model),
-            ollama_temperature=float(os.getenv('OLLAMA_TEMPERATURE', ModelConfig.ollama_temperature)),
-            flux_model=os.getenv('FLUX_MODEL', ModelConfig.flux_model),
-            max_sequence_length=int(os.getenv('MAX_SEQUENCE_LENGTH', ModelConfig.max_sequence_length))
+            ollama_model=os.getenv("OLLAMA_MODEL", ModelConfig.ollama_model),
+            ollama_temperature=float(
+                os.getenv("OLLAMA_TEMPERATURE", ModelConfig.ollama_temperature)
+            ),
+            flux_model_path=os.getenv("FLUX_MODEL", ModelConfig.flux_model_path),
+            max_sequence_length=int(
+                os.getenv("MAX_SEQUENCE_LENGTH", ModelConfig.max_sequence_length)
+            ),
         )
-        
-        self.image = ImageConfig(
-            height=int(os.getenv('IMAGE_HEIGHT', ImageConfig.height)),
-            width=int(os.getenv('IMAGE_WIDTH', ImageConfig.width)),
-            num_inference_steps=int(os.getenv('NUM_INFERENCE_STEPS', ImageConfig.num_inference_steps)),
-            guidance_scale=float(os.getenv('GUIDANCE_SCALE', ImageConfig.guidance_scale)),
-            true_cfg_scale=float(os.getenv('TRUE_CFG_SCALE', ImageConfig.true_cfg_scale))
+
+        self.image = image or ImageConfig(
+            height=int(os.getenv("IMAGE_HEIGHT", ImageConfig.height)),
+            width=int(os.getenv("IMAGE_WIDTH", ImageConfig.width)),
+            num_inference_steps=int(
+                os.getenv("NUM_INFERENCE_STEPS", ImageConfig.num_inference_steps)
+            ),
+            guidance_scale=float(
+                os.getenv("GUIDANCE_SCALE", ImageConfig.guidance_scale)
+            ),
+            true_cfg_scale=float(
+                os.getenv("TRUE_CFG_SCALE", ImageConfig.true_cfg_scale)
+            ),
         )
-        
-        self.system = SystemConfig(
-            output_dir=Path(os.getenv('OUTPUT_DIR', SystemConfig.output_dir)),
-            log_dir=Path(os.getenv('LOG_DIR', SystemConfig.log_dir)),
-            cache_dir=Path(os.getenv('CACHE_DIR', SystemConfig.cache_dir)),
-            cpu_only=bool(os.getenv('CPU_ONLY', SystemConfig.cpu_only)),
-            mps_use_fp16=bool(os.getenv('MPS_USE_FP16', SystemConfig.mps_use_fp16))
+
+        self.system = system or SystemConfig(
+            output_dir=Path(os.getenv("OUTPUT_DIR", SystemConfig.output_dir)),
+            log_dir=Path(os.getenv("LOG_DIR", SystemConfig.log_dir)),
+            cache_dir=Path(os.getenv("CACHE_DIR", SystemConfig.cache_dir)),
+            image_output_dir=Path(
+                os.getenv("IMAGE_OUTPUT_DIR", SystemConfig.image_output_dir)
+            ),
+            cpu_only=bool(os.getenv("CPU_ONLY", SystemConfig.cpu_only)),
+            mps_use_fp16=bool(os.getenv("MPS_USE_FP16", SystemConfig.mps_use_fp16)),
+        )
+
+        self.logging = logging or LoggingConfig(
+            level=os.getenv("LOG_LEVEL", LoggingConfig.level)
+        )
+
+        self.temporal_context = temporal_context or TemporalContextConfig(
+            enabled=bool(
+                os.getenv("TEMPORAL_ENABLED", TemporalContextConfig.enabled)
+            ),
+            use_day_of_week=bool(
+                os.getenv(
+                    "TEMPORAL_DAY_OF_WEEK", TemporalContextConfig.use_day_of_week
+                )
+            ),
+            use_time_of_day=bool(
+                os.getenv(
+                    "TEMPORAL_TIME_OF_DAY", TemporalContextConfig.use_time_of_day
+                )
+            ),
+            use_holidays=bool(
+                os.getenv("TEMPORAL_HOLIDAYS", TemporalContextConfig.use_holidays)
+            ),
         )
         
     @classmethod
@@ -118,7 +189,9 @@ class Config:
             'model': asdict(self.model),
             'image': asdict(self.image),
             'plugins': asdict(self.plugins),
-            'system': {k: str(v) if isinstance(v, Path) else v 
+            'logging': asdict(self.logging),
+            'temporal_context': asdict(self.temporal_context),
+            'system': {k: str(v) if isinstance(v, Path) else v
                       for k, v in asdict(self.system).items()}
         }
         
@@ -152,7 +225,7 @@ class Config:
             errors.append(f"Invalid true CFG scale: {self.image.true_cfg_scale} (must be between 1.0 and 10.0)")
             
         # Validate system paths
-        for path_attr in ['output_dir', 'log_dir', 'cache_dir']:
+        for path_attr in ['output_dir', 'log_dir', 'cache_dir', 'image_output_dir']:
             path = getattr(self.system, path_attr)
             try:
                 path.mkdir(parents=True, exist_ok=True)
